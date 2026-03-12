@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { atom, useAtom } from "jotai";
 import {
@@ -103,6 +103,13 @@ interface RecommendQueryResponse {
   };
 }
 
+interface MetaResponse {
+  success: boolean;
+  data: {
+    menu_count: number;
+  };
+}
+
 interface MacroEstimate {
   protein: number;
   carbs: number;
@@ -139,6 +146,8 @@ const imageMap: Record<string, string> = {
   "soup-drink":
     "https://images.unsplash.com/photo-1547592166-23ac45744acd?auto=format&fit=crop&w=1200&q=80",
 };
+
+const DISCOVER_PAGE_SIZE = 24;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -290,6 +299,20 @@ async function fetchJson<T>(
   return data as T;
 }
 
+function generateSessionSeed() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function mergeMenus(existing: MenuItem[], incoming: MenuItem[]) {
+  const merged = new Map(existing.map((item) => [item.id, item]));
+
+  incoming.forEach((item) => {
+    merged.set(item.id, item);
+  });
+
+  return [...merged.values()];
+}
+
 const Sidebar = () => {
   const [currentView, setView] = useAtom(viewAtom);
   const [favorites] = useAtom(favoritesAtom);
@@ -422,7 +445,7 @@ const Hero = ({ menuCount }: { menuCount: number }) => {
       >
         <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
         <span className="text-sm font-medium text-stone-600 tracking-wide pr-1">
-          {menuCount > 0 ? `${menuCount} Dishes Ready` : "Campus Menu Live"}
+          {menuCount > 0 ? `已收录 ${menuCount} 道菜品` : "Campus Menu Live"}
         </span>
         <motion.div
           animate={{ y: [0, -4, 0], opacity: [0.5, 1, 0.5] }}
@@ -1732,16 +1755,29 @@ const XiaoDFloatingChat = ({
 };
 
 export default function App() {
-  const [menus, setMenus] = useState<MenuItem[]>([]);
+  const [menuCache, setMenuCache] = useState<MenuItem[]>([]);
+  const [discoverItems, setDiscoverItems] = useState<MenuItem[]>([]);
+  const [favoriteItems, setFavoriteItems] = useState<MenuItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [expandedItem, setExpandedItem] = useState<MenuItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [catalogCount, setCatalogCount] = useState(0);
+  const [discoverTotal, setDiscoverTotal] = useState(0);
+  const [discoverPage, setDiscoverPage] = useState(1);
+  const [hasMoreDiscover, setHasMoreDiscover] = useState(true);
 
   const [currentView] = useAtom(viewAtom);
   const [favorites, setFavorites] = useAtom(favoritesAtom);
   const [searchQuery] = useAtom(searchQueryAtom);
   const [isAiMode] = useAtom(isAiModeAtom);
+
+  const discoverSeedRef = useRef(generateSessionSeed());
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const requestVersionRef = useRef(0);
+  const deferredSearchQuery = useDeferredValue(searchQuery.trim());
+  const isSearchMode = Boolean(deferredSearchQuery);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("xd-food-favorites");
@@ -1770,63 +1806,208 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadMenus() {
-      setIsLoading(true);
-      setErrorMessage(null);
+    async function loadMeta() {
       try {
-        const response = await fetchJson<MenusResponse>(
-          "/api/menus?page=1&page_size=1000",
-        );
+        const response = await fetchJson<MetaResponse>("/api/meta");
         if (!cancelled) {
-          setMenus(response.data.items);
+          setCatalogCount(response.data.menu_count);
         }
-      } catch (error) {
-        if (!cancelled) {
-          setErrorMessage(
-            error instanceof Error ? error.message : "加载菜单失败",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+      } catch {
+        // Ignore meta failures here; list loading still provides a fallback total.
       }
     }
 
-    void loadMenus();
+    void loadMeta();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
+  useEffect(() => {
+    setDiscoverPage(1);
+    setDiscoverItems([]);
+    setHasMoreDiscover(true);
+  }, [deferredSearchQuery]);
+
+  useEffect(() => {
+    const requestVersion = ++requestVersionRef.current;
+    let cancelled = false;
+
+    async function loadDiscoverPage() {
+      if (discoverPage === 1) {
+        setIsLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+
+      try {
+        const params = new URLSearchParams({
+          page: String(discoverPage),
+          page_size: String(DISCOVER_PAGE_SIZE),
+        });
+
+        if (deferredSearchQuery) {
+          params.set("keyword", deferredSearchQuery);
+        } else {
+          params.set("sort_by", "random");
+          params.set("seed", discoverSeedRef.current);
+          params.set("diversify_shop", "true");
+        }
+
+        const response = await fetchJson<MenusResponse>(
+          `/api/menus?${params.toString()}`,
+        );
+        if (cancelled || requestVersion !== requestVersionRef.current) {
+          return;
+        }
+
+        const incomingItems = response.data.items;
+        setDiscoverItems((previous) =>
+          discoverPage === 1
+            ? incomingItems
+            : mergeMenus(previous, incomingItems),
+        );
+        setMenuCache((previous) => mergeMenus(previous, incomingItems));
+        setDiscoverTotal(response.data.pagination.total);
+        setCatalogCount(
+          (previous) => previous || response.data.pagination.total,
+        );
+        setHasMoreDiscover(
+          response.data.pagination.page < response.data.pagination.total_pages,
+        );
+        setErrorMessage(null);
+      } catch (error) {
+        if (!cancelled && requestVersion === requestVersionRef.current) {
+          setErrorMessage(
+            error instanceof Error ? error.message : "加载菜单失败",
+          );
+        }
+      } finally {
+        if (!cancelled && requestVersion === requestVersionRef.current) {
+          setIsLoading(false);
+          setIsLoadingMore(false);
+        }
+      }
+    }
+
+    void loadDiscoverPage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [discoverPage, deferredSearchQuery]);
+
+  useEffect(() => {
+    if (!favorites.length) {
+      setFavoriteItems([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadFavoriteItems() {
+      const cacheMap = new Map(menuCache.map((item) => [item.id, item]));
+      const cachedItems = favorites
+        .map((id) => cacheMap.get(id) || null)
+        .filter((item): item is MenuItem => Boolean(item));
+      const missingIds = favorites.filter((id) => !cacheMap.has(id));
+
+      try {
+        const fetchedItems = (
+          await Promise.all(
+            missingIds.map(async (id) => {
+              try {
+                const response = await fetchJson<MenuDetailResponse>(
+                  `/api/menus/${id}`,
+                );
+                return response.data.item;
+              } catch {
+                return null;
+              }
+            }),
+          )
+        ).filter((item): item is MenuItem => Boolean(item));
+
+        if (cancelled) {
+          return;
+        }
+
+        if (fetchedItems.length) {
+          setMenuCache((previous) => mergeMenus(previous, fetchedItems));
+        }
+
+        const mergedMap = new Map(
+          [...cachedItems, ...fetchedItems].map((item) => [item.id, item]),
+        );
+        setFavoriteItems(
+          favorites
+            .map((id) => mergedMap.get(id) || null)
+            .filter((item): item is MenuItem => Boolean(item)),
+        );
+      } catch {
+        if (!cancelled) {
+          setFavoriteItems(cachedItems);
+        }
+      }
+    }
+
+    void loadFavoriteItems();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [favorites, menuCache]);
+
+  useEffect(() => {
+    if (
+      currentView !== "discover" ||
+      !hasMoreDiscover ||
+      isLoading ||
+      isLoadingMore
+    ) {
+      return;
+    }
+
+    const target = loadMoreRef.current;
+    if (!target) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry?.isIntersecting) {
+          setDiscoverPage((previous) => previous + 1);
+        }
+      },
+      { rootMargin: "320px 0px" },
+    );
+
+    observer.observe(target);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [currentView, hasMoreDiscover, isLoading, isLoadingMore]);
+
   async function openDetail(id: string) {
     try {
       const response = await fetchJson<MenuDetailResponse>(`/api/menus/${id}`);
       setExpandedItem(null);
       setSelectedItem(response.data.item);
+      setMenuCache((previous) => mergeMenus(previous, [response.data.item]));
       setErrorMessage(null);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "加载详情失败");
     }
   }
 
-  const favoriteItems = menus.filter((item) => favorites.includes(item.id));
-
-  let displayedData = currentView === "discover" ? menus : favoriteItems;
-
-  if (searchQuery.trim() && !isAiMode && currentView === "discover") {
-    const keyword = searchQuery.toLowerCase();
-    displayedData = displayedData.filter((item) =>
-      [
-        item.title,
-        item.shop_text,
-        item.location_text,
-        item.category,
-        ...item.flavor_options,
-      ].some((field) => field.toLowerCase().includes(keyword)),
-    );
-  }
+  const displayedData =
+    currentView === "discover" ? discoverItems : favoriteItems;
+  const visibleCountText = isSearchMode
+    ? `匹配 ${discoverTotal} 条`
+    : `已展示 ${discoverItems.length} / ${discoverTotal || catalogCount} 条`;
 
   return (
     <div className="min-h-screen bg-[#FDFDFD] text-stone-800 selection:bg-stone-200 flex relative overflow-hidden">
@@ -1844,7 +2025,7 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3 }}
             >
-              <Hero menuCount={menus.length} />
+              <Hero menuCount={catalogCount} />
               <motion.section
                 className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10"
                 animate={{
@@ -1863,15 +2044,17 @@ export default function App() {
                   className="flex items-center justify-between mb-8"
                 >
                   <h2 className="text-[22px] font-semibold tracking-tight text-stone-800">
-                    {searchQuery.trim() && !isAiMode
-                      ? `搜索 "${searchQuery}" 的结果`
+                    {isSearchMode
+                      ? `搜索 "${searchQuery.trim()}" 的结果`
                       : "Today's Picks"}
                   </h2>
                   <div className="text-[15px] text-stone-500 flex gap-5 items-center">
-                    <button className="text-stone-800 font-medium tracking-wide">
-                      Newest
-                    </button>
-                    <span className="tracking-wide">共 {menus.length} 条</span>
+                    <span className="text-stone-800 font-medium tracking-wide">
+                      {isSearchMode
+                        ? "后端筛选结果"
+                        : "随机推荐 · 分散同店内容"}
+                    </span>
+                    <span className="tracking-wide">{visibleCountText}</span>
                   </div>
                 </motion.div>
                 {errorMessage ? (
@@ -1899,6 +2082,26 @@ export default function App() {
                         />
                       </motion.div>
                     ))}
+                  </div>
+                )}
+                {!errorMessage && !isLoading && displayedData.length > 0 && (
+                  <div className="flex flex-col items-center gap-4 pt-10">
+                    {hasMoreDiscover ? (
+                      <button
+                        onClick={() =>
+                          setDiscoverPage((previous) => previous + 1)
+                        }
+                        disabled={isLoadingMore}
+                        className="px-5 py-2.5 rounded-full bg-white border border-stone-200 text-stone-700 shadow-sm hover:bg-stone-50 transition-colors disabled:opacity-60"
+                      >
+                        {isLoadingMore ? "加载中..." : "加载更多菜品"}
+                      </button>
+                    ) : (
+                      <p className="text-sm text-stone-400">
+                        这一轮推荐已经看完了
+                      </p>
+                    )}
+                    <div ref={loadMoreRef} className="h-6 w-full" />
                   </div>
                 )}
               </motion.section>
@@ -1977,7 +2180,7 @@ export default function App() {
         onClose={() => setExpandedItem(null)}
       />
       <XiaoDFloatingChat
-        menus={menus}
+        menus={menuCache}
         onPickItem={(item) => void openDetail(item.id)}
       />
     </div>
