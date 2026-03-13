@@ -1,4 +1,10 @@
-import React, { useDeferredValue, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { atom, useAtom } from "jotai";
 import {
@@ -311,6 +317,25 @@ function mergeMenus(existing: MenuItem[], incoming: MenuItem[]) {
   });
 
   return [...merged.values()];
+}
+
+function filterMenusByKeyword(items: MenuItem[], keyword: string) {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+
+  if (!normalizedKeyword) {
+    return items;
+  }
+
+  return items.filter((item) =>
+    [
+      item.title,
+      item.shop_text,
+      item.location_text,
+      item.stall_text,
+      item.category,
+      ...item.flavor_options,
+    ].some((field) => field.toLowerCase().includes(normalizedKeyword)),
+  );
 }
 
 function buildDiscoverRequestUrl({
@@ -1784,6 +1809,9 @@ const XiaoDFloatingChat = ({
 
 export default function App() {
   const [menuCache, setMenuCache] = useState<MenuItem[]>([]);
+  const [fullMenuCatalog, setFullMenuCatalog] = useState<MenuItem[]>([]);
+  const [isCatalogReady, setIsCatalogReady] = useState(false);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(false);
   const [discoverItems, setDiscoverItems] = useState<MenuItem[]>([]);
   const [favoriteItems, setFavoriteItems] = useState<MenuItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
@@ -1811,6 +1839,7 @@ export default function App() {
   } | null>(null);
   const prefetchingPageRef = useRef<number | null>(null);
   const observerRequestedPageRef = useRef<number | null>(null);
+  const fullCatalogPromiseRef = useRef<Promise<MenuItem[]> | null>(null);
   const discoverPageRef = useRef(discoverPage);
   const isLoadingRef = useRef(isLoading);
   const isLoadingMoreRef = useRef(isLoadingMore);
@@ -1820,6 +1849,51 @@ export default function App() {
   discoverPageRef.current = discoverPage;
   isLoadingRef.current = isLoading;
   isLoadingMoreRef.current = isLoadingMore;
+
+  const ensureFullMenuCatalog = useCallback(async () => {
+    if (isCatalogReady) {
+      return fullMenuCatalog;
+    }
+
+    if (fullCatalogPromiseRef.current) {
+      return fullCatalogPromiseRef.current;
+    }
+
+    setIsCatalogLoading(true);
+    const task = (async () => {
+      const firstPage = await fetchJson<MenusResponse>(
+        `/api/menus?page=1&page_size=100`,
+      );
+      let allItems = [...firstPage.data.items];
+
+      for (
+        let page = 2;
+        page <= firstPage.data.pagination.total_pages;
+        page++
+      ) {
+        const response = await fetchJson<MenusResponse>(
+          `/api/menus?page=${page}&page_size=100`,
+        );
+        allItems = mergeMenus(allItems, response.data.items);
+      }
+
+      return allItems;
+    })();
+
+    fullCatalogPromiseRef.current = task;
+
+    try {
+      const allItems = await task;
+      setFullMenuCatalog(allItems);
+      setIsCatalogReady(true);
+      setMenuCache((previous) => mergeMenus(previous, allItems));
+      setCatalogCount((previous) => previous || allItems.length);
+      return allItems;
+    } finally {
+      fullCatalogPromiseRef.current = null;
+      setIsCatalogLoading(false);
+    }
+  }, [fullMenuCatalog, isCatalogReady]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("xd-food-favorites");
@@ -1867,6 +1941,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void ensureFullMenuCatalog().catch(() => {
+        // Ignore prewarm failures; discover fallback remains available.
+      });
+    }, 600);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [ensureFullMenuCatalog]);
+
+  useEffect(() => {
     setDiscoverPage(1);
     setDiscoverItems([]);
     setHasMoreDiscover(true);
@@ -1876,6 +1962,70 @@ export default function App() {
   }, [deferredSearchQuery]);
 
   useEffect(() => {
+    if (!isSearchMode) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function applyLocalSearch() {
+      if (discoverPage === 1) {
+        setIsLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+
+      try {
+        const sourceItems = isCatalogReady
+          ? fullMenuCatalog
+          : await ensureFullMenuCatalog();
+        if (cancelled) {
+          return;
+        }
+
+        const filteredItems = filterMenusByKeyword(
+          sourceItems,
+          deferredSearchQuery,
+        );
+        const renderCount = discoverPage * DISCOVER_PAGE_SIZE;
+
+        setDiscoverItems(filteredItems.slice(0, renderCount));
+        setDiscoverTotal(filteredItems.length);
+        setHasMoreDiscover(renderCount < filteredItems.length);
+        setErrorMessage(null);
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(
+            error instanceof Error ? error.message : "搜索加载失败",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+          setIsLoadingMore(false);
+        }
+      }
+    }
+
+    void applyLocalSearch();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    deferredSearchQuery,
+    discoverPage,
+    ensureFullMenuCatalog,
+    fullMenuCatalog,
+    isCatalogReady,
+    isSearchMode,
+  ]);
+
+  useEffect(() => {
+    if (isSearchMode) {
+      return;
+    }
+
     const requestVersion = ++requestVersionRef.current;
     let cancelled = false;
 
@@ -1987,7 +2137,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [discoverPage, deferredSearchQuery]);
+  }, [discoverPage, deferredSearchQuery, isSearchMode]);
 
   useEffect(() => {
     if (!favorites.length) {
@@ -2165,7 +2315,7 @@ export default function App() {
                     <div className="text-[15px] text-stone-500 flex gap-5 items-center">
                       <span className="text-stone-800 font-medium tracking-wide">
                         {isSearchMode
-                          ? "后端筛选结果"
+                          ? `本地即时筛选${isCatalogLoading ? "（预加载中）" : ""}`
                           : "随机推荐 · 分散同店内容"}
                       </span>
                       <span className="tracking-wide">{visibleCountText}</span>
