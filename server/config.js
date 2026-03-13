@@ -7,11 +7,14 @@ const __dirname = path.dirname(__filename);
 
 export const SERVER_ROOT = __dirname;
 export const PROJECT_ROOT = path.resolve(SERVER_ROOT, "..");
-export const WORKSPACE_ROOT = path.resolve(PROJECT_ROOT, "..");
-export const DATA_FILE_PATH = path.join(
-  WORKSPACE_ROOT,
-  "recommended_menus_frontend_ui.json",
-);
+export const DATA_FILE_PATH =
+  process.env.DATA_FILE_PATH ||
+  path.join(
+    PROJECT_ROOT,
+    "server",
+    "data",
+    "recommended_menus_frontend_ui.json",
+  );
 export const PORT = Number(process.env.PORT || 3001);
 export const SERVER_TIMEZONE = process.env.SERVER_TIMEZONE || "Asia/Shanghai";
 
