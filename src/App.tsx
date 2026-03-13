@@ -1409,6 +1409,11 @@ const XiaoDFloatingChat = ({
       return;
     }
 
+    const conversationHistory = [
+      ...messages.slice(-6),
+      { role: "user", text: query },
+    ];
+
     setAiInput("");
     setRecommendations([]);
     setMessages((previous) => [...previous, { role: "user", text: query }]);
@@ -1426,6 +1431,7 @@ const XiaoDFloatingChat = ({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             query,
+            conversation_history: conversationHistory,
             top_k: 4,
             include_explanations: true,
             debug: false,

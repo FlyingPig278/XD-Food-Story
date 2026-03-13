@@ -6,6 +6,45 @@ import { searchRecommendations } from "../services/recommendationService.js";
 
 const router = Router();
 
+function buildContextualQuery(query, history) {
+  if (!Array.isArray(history) || history.length === 0) {
+    return String(query || "").trim();
+  }
+
+  const normalizedHistory = history
+    .slice(-8)
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return entry.trim();
+      }
+
+      if (!entry || typeof entry !== "object") {
+        return "";
+      }
+
+      const role =
+        entry.role === "ai" || entry.role === "assistant"
+          ? "AI"
+          : entry.role === "user"
+            ? "用户"
+            : "上下文";
+      const text = String(entry.text || entry.content || "").trim();
+      return text ? `${role}: ${text}` : "";
+    })
+    .filter(Boolean);
+
+  const latestQuery = String(query || "").trim();
+  const parts = normalizedHistory.length
+    ? [
+        "以下是最近对话上下文，请结合上下文理解用户当前追问：",
+        ...normalizedHistory,
+        `当前用户问题：${latestQuery}`,
+      ]
+    : [latestQuery];
+
+  return parts.join("\n");
+}
+
 router.post(
   "/parse-intent",
   asyncHandler(async (req, res) => {
@@ -48,6 +87,7 @@ router.post(
       query,
       top_k: topK = 5,
       include_explanations: includeExplanations = true,
+      conversation_history: conversationHistory = [],
       debug = false,
     } = req.body ?? {};
 
@@ -60,13 +100,14 @@ router.post(
       );
     }
 
-    const parsed = await parseIntent(query, topK);
+    const contextualQuery = buildContextualQuery(query, conversationHistory);
+    const parsed = await parseIntent(contextualQuery, topK);
     const result = await searchRecommendations(parsed.intent, {
       debug: Boolean(debug),
     });
     const explanation = includeExplanations
       ? await explainItems(
-          query,
+          contextualQuery,
           result.data.items,
           parsed.intent.explanation_style,
         )
