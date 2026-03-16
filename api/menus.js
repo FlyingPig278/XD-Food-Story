@@ -1,31 +1,40 @@
-import { getMeta, getMenuDetail, listMenus } from "../server/services/menuService.js";
+import fs from 'fs';
+import path from 'path';
 
-export default async function handler(req, res) {
-  const { pathname, searchParams } = new URL(req.url, `http://${req.headers.host}`);
-  const id = pathname.split("/").pop();
+export default function handler(req, res) {
+  // 允许跨域
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
   try {
-    // 模拟元数据接口 /api/menus/meta (如果需要) 或直接处理全局 meta
-    if (pathname.includes("/meta")) {
-      const meta = await getMeta();
-      return res.status(200).json({ success: true, data: meta });
+    // 绝对路径定位：强制去项目根目录下的 api 文件夹里找 data.json
+    // 使用 process.cwd() 配合 vercel.json 的 includeFiles
+    const filePath = path.join(process.cwd(), 'api', 'data.json');
+    if (!fs.existsSync(filePath)) {
+        // 容灾处理：尝试从原本的 server 目录找
+        const fallbackPath = path.join(process.cwd(), 'server', 'data', 'recommended_menus_frontend_ui.json');
+        if (fs.existsSync(fallbackPath)) {
+            const fileData = fs.readFileSync(fallbackPath, 'utf8');
+            return res.status(200).json({ success: true, data: JSON.parse(fileData) });
+        }
+        throw new Error("File not found at " + filePath);
     }
 
-    // 处理详情 /api/menus/:id
-    if (id && id !== "menus") {
-      const item = await getMenuDetail(id);
-      if (!item) {
-        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Menu item not found." } });
-      }
-      return res.status(200).json({ success: true, data: { item } });
-    }
-
-    // 处理列表 /api/menus
-    const query = Object.fromEntries(searchParams);
-    const result = await listMenus(query);
-    return res.status(200).json({ success: true, data: result });
+    const fileData = fs.readFileSync(filePath, 'utf8');
+    const jsonData = JSON.parse(fileData);
+    
+    // 为了保持与前端之前逻辑的兼容性，我们包裹一层 { success: true, data: ... }
+    // 如果您的前端直接读取的是数组，请将下面的包装改为直接返回 jsonData
+    res.status(200).json({ success: true, data: jsonData });
   } catch (error) {
-    console.error("[api/menus] error:", error);
-    return res.status(500).json({ success: false, error: { message: "Internal Server Error" } });
+    console.error("读取 JSON 失败:", error);
+    res.status(500).json({ 
+      error: '找不到菜单数据，请检查 data.json 是否在 api 文件夹内',
+      details: error.message 
+    });
   }
 }
