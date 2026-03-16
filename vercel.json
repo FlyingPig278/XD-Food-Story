@@ -1,14 +1,34 @@
 {
   "version": 2,
   "functions": {
-    "api/index.js": {
-      "includeFiles": "server/**"
+    "api/*.js": {
+      "includeFiles": "server/data/**"
     }
   },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.js"
+      "source": "/api/menus/meta",
+      "destination": "/api/menus.js"
+    },
+    {
+      "source": "/api/meta",
+      "destination": "/api/menus.js"
+    },
+    {
+      "source": "/api/menus/:id",
+      "destination": "/api/menus.js"
+    },
+    {
+      "source": "/api/menus",
+      "destination": "/api/menus.js"
+    },
+    {
+      "source": "/api/recommend/stream",
+      "destination": "/api/recommend.js"
+    },
+    {
+      "source": "/api/favorites",
+      "destination": "/api/favorites.js"
     },
     {
       "source": "/(.*)",
