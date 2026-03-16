@@ -32,3 +32,6 @@ export const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 20000);
 export const LLM_ENABLE_THINKING =
   String(process.env.LLM_ENABLE_THINKING || "false").toLowerCase() === "true";
 export const LLM_ENABLED = Boolean(LLM_API_KEY);
+
+export const IS_VERCEL = !!process.env.VERCEL;
+export const IS_PROD = process.env.NODE_ENV === "production" || IS_VERCEL;

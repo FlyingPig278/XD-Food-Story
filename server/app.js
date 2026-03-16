@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express from "express";
 import { rateLimit } from "express-rate-limit";
-import { LLM_ENABLED } from "./config.js";
+import { LLM_ENABLED, IS_VERCEL } from "./config.js";
 import { logAudit } from "./services/auditService.js";
 import metaRoutes from "./routes/metaRoutes.js";
 import menuRoutes from "./routes/menuRoutes.js";
@@ -48,8 +48,10 @@ export function createApp() {
   app.use("/api/menus", menuRoutes);
   app.use("/api/recommend", recommendRoutes);
   app.use("/api/favorites", favoriteRoutes);
+  app.use("/api/health", (req, res) => ok(res, { status: "ok", vercel: IS_VERCEL }));
 
-  if (hasDistBuild) {
+  // Skip static serving on Vercel (Vercel handles this via vercel.json)
+  if (hasDistBuild && !IS_VERCEL) {
     app.use(express.static(distDir));
     app.get(/^(?!\/api\/).*/, (_req, res) => {
       res.sendFile(distIndexPath);
