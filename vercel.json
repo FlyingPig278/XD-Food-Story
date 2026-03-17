@@ -2,10 +2,7 @@
   "version": 2,
   "functions": {
     "api/**/*.js": {
-      "includeFiles": [
-        "api/data.json",
-        "server/data/recommended_menus_frontend_ui.json"
-      ]
+      "includeFiles": "{api/data.json,server/data/recommended_menus_frontend_ui.json}"
     }
   },
   "rewrites": [
