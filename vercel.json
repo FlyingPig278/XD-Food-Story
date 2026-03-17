@@ -7,31 +7,11 @@
   },
   "rewrites": [
     {
-      "source": "/api/menus/meta",
-      "destination": "/api/menus.js"
+      "source": "/api/(.*)",
+      "destination": "/api/$1.js"
     },
     {
-      "source": "/api/meta",
-      "destination": "/api/menus.js"
-    },
-    {
-      "source": "/api/menus/:id",
-      "destination": "/api/menus.js"
-    },
-    {
-      "source": "/api/menus",
-      "destination": "/api/menus.js"
-    },
-    {
-      "source": "/api/recommend/stream",
-      "destination": "/api/recommend.js"
-    },
-    {
-      "source": "/api/favorites",
-      "destination": "/api/favorites.js"
-    },
-    {
-      "source": "/(.*)",
+      "source": "/((?!assets/|static/|favicon.ico|vite.svg).*)",
       "destination": "/index.html"
     }
   ]
