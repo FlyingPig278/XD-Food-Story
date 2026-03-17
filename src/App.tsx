@@ -353,6 +353,12 @@ async function fetchJson<T>(
   init?: RequestInit,
 ): Promise<T> {
   const response = await fetch(input, init);
+  const contentType = response.headers.get("content-type");
+  
+  if (!contentType || !contentType.includes("application/json")) {
+    throw new Error(`服务器响应异常 (${response.status})`);
+  }
+
   const data = await response.json();
   if (!response.ok || data.success === false) {
     throw new Error(data?.error?.message || "请求失败");
