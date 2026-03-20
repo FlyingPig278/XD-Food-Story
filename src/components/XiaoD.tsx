@@ -278,19 +278,33 @@ const XiaoDFallback = () => (
 
 const XiaoD = ({ mode = 'idle', className = '' }: { mode?: RobotMode; className?: string }) => {
   const [ready, setReady] = useState(false);
+  const [isMobile] = useState(() => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
 
   return (
     <div className={`relative w-full h-full ${className}`}>
       <div className="absolute inset-0 w-full h-full">
         <Canvas
           camera={{ position: [0, 0, 2.8], fov: 52 }}
-          dpr={[1, 2]}
+          // 移动端限制 dpr 在 1.5 左右，避免 3x 屏产生过度渲染负载
+          dpr={isMobile ? [1, 1.5] : [1, 2]}
+          gl={{ 
+            antialias: true, 
+            alpha: true,
+            powerPreference: 'high-performance'
+          }}
           onCreated={() => setReady(true)}
         >
           <Suspense fallback={null}>
-            <ambientLight intensity={1.3} color="#f0f8ff" />
-            <directionalLight position={[2, 4, 5]} intensity={1.8} color="#ffffff" />
-            <Environment preset="city" />
+            <ambientLight intensity={1.5} color="#eef7ff" />
+            <directionalLight position={[5, 5, 5]} intensity={1.8} color="#ffffff" />
+            <pointLight position={[-3, 2, -2]} intensity={1.2} color="#0066ff" />
+            {/* 移除预设，改为极简的内联环境模拟 */}
+            <Environment frames={Infinity} resolution={64}>
+              <mesh scale={10}>
+                <sphereGeometry args={[1, 16, 16]} />
+                <meshBasicMaterial color="#ffffff" side={THREE.BackSide} />
+              </mesh>
+            </Environment>
             <XiaoDCharacter mode={mode} />
           </Suspense>
         </Canvas>

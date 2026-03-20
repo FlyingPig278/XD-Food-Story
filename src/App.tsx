@@ -3188,7 +3188,10 @@ export default function App() {
         />
 
         {/* ── 3D Preloader: 预热三维上下文，防止开启对话时冷启动卡顿 ── */}
-        <div className="sr-only p-0 m-0 w-0 h-0 overflow-hidden pointer-events-none opacity-0 invisible" aria-hidden="true">
+        <div 
+          className="fixed bottom-0 right-0 w-[1px] h-[1px] opacity-0 pointer-events-none overflow-hidden" 
+          aria-hidden="true"
+        >
           <ErrorBoundary>
             <XiaoD mode="idle" />
           </ErrorBoundary>
