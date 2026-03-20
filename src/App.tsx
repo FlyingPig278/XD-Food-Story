@@ -1807,18 +1807,6 @@ const XiaoDFloatingChat = React.memo(
     const inputRef = useRef<HTMLInputElement>(null);
 
     const [isTalking, setIsTalking] = useState(false);
-    const [isJustReplied, setIsJustReplied] = useState(false);
-    const prevTalkingRef = useRef(false);
-
-    // isTalking false => true => false 过渡时触发表情
-    useEffect(() => {
-      if (prevTalkingRef.current && !isTalking && messages.length > 0) {
-        setIsJustReplied(true);
-        const t = setTimeout(() => setIsJustReplied(false), 2600);
-        return () => clearTimeout(t);
-      }
-      prevTalkingRef.current = isTalking;
-    }, [isTalking, messages.length]);
 
     const robotMode: RobotMode = isThinking
       ? "thinking"
@@ -2062,7 +2050,7 @@ const XiaoDFloatingChat = React.memo(
                   />
                   <div className="absolute inset-0 w-full h-full flex items-center justify-center">
                     <ErrorBoundary>
-                      <XiaoD mode={robotMode} showSmile={isJustReplied} />
+                      <XiaoD mode={robotMode} />
                     </ErrorBoundary>
                   </div>
 

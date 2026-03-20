@@ -257,6 +257,25 @@ function XiaoDCharacter({ mode }: { mode: RobotMode }) {
   );
 }
 
+const XiaoDFallback = () => (
+  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+    <div className="flex items-center gap-1.5">
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          className="w-2 h-2 rounded-full bg-orange-400"
+          style={{
+            animation: `pulse 1s ease-in-out ${i * 0.15}s infinite`,
+          }}
+        />
+      ))}
+    </div>
+    <span className="text-[11px] text-stone-400 font-medium tracking-wide">
+      西小电加载中...
+    </span>
+  </div>
+);
+
 const XiaoD = ({ mode = 'idle', className = '' }: { mode?: RobotMode; className?: string }) => (
   <div className={`relative w-full h-full ${className}`}>
     <div className="absolute inset-0 w-full h-full">
@@ -269,6 +288,8 @@ const XiaoD = ({ mode = 'idle', className = '' }: { mode?: RobotMode; className?
         </Suspense>
       </Canvas>
     </div>
+    {/* HTML-layer fallback visible while Canvas/Suspense loads */}
+    <XiaoDFallback />
   </div>
 );
 
