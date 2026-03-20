@@ -68,16 +68,7 @@ export async function* unifiedRecommendStream(query, history = []) {
     const { data: searchData } = await searchRecommendations(intent);
     items = searchData.items || [];
 
-    // 2. 立即推送菜品卡片
-    if (items.length > 0) {
-      yield {
-        type: "final",
-        data: {
-          items: items,
-          reply_text: "",
-        },
-      };
-    } else {
+    if (items.length === 0) {
       yield {
         type: "text",
         text: "唔，这个需求有点难到我了，没找到完全匹配的菜品呢。要不换个说法？",
@@ -86,18 +77,19 @@ export async function* unifiedRecommendStream(query, history = []) {
     }
   }
 
-  // 3. 生成更有温度、针对性的回复 (容灾处理)
+  // 2. 先生成有温度的文字回复（流式推送）
+  let hasTextOutput = false;
   try {
     const recapMode = isRecapQuery(query);
     const systemPrompt = recapMode
-      ? "你是校园食堂助手“西小电”。请仅依据对话历史回答用户的回顾问题，不要编造。如果历史不足就直接说信息不足。语气自然，30~80字。\n【格式要求】：禁止使用任何 Markdown 格式（如加粗、斜体、列表等），请直接输出纯文本。"
+      ? "你是校园食堂助手"西小电"。请仅依据对话历史回答用户的回顾问题，不要编造。如果历史不足就直接说信息不足。语气自然，30~80字。\n【格式要求】：禁止使用任何 Markdown 格式（如加粗、斜体、列表等），请直接输出纯文本。"
       : isFoodQuery
-        ? "你是一个既专业又带点俏皮感的校园食堂助手“西小电”。\n" +
+        ? "你是一个既专业又带点俏皮感的校园食堂助手"西小电"。\n" +
           "1. 语气：像学长学姐一样自然、亲切，带点幽默（比如：'饿坏了吧？'、'今天的胃口在呼唤什么？'）。\n" +
           "2. 针对性：结合当前问题和历史需求，保持约束继承（如餐段、预算、辣度），再给简短推荐语。\n" +
           "3. 限制：不要客套，不要谄媚。\n" +
           "4. 格式：禁止使用任何 Markdown 格式（如加粗、斜体、列表等），请直接输出纯文本。"
-        : "你是一个既专业又带点俏皮感的校园食堂助手“西小电”。\n" +
+        : "你是一个既专业又带点俏皮感的校园食堂助手"西小电"。\n" +
           "1. 身份：你是西电（西安电子科技大学）食堂的活地图、美食达人。\n" +
           "2. 语气：随性、幽默、带点学长学姐的范儿。若用户是追问，请优先承接前文再回复。\n" +
           "3. 引导：如果话题完全无关，可以巧妙地引导用户问你关于吃的话题，但不要生硬。\n" +
@@ -126,9 +118,29 @@ export async function* unifiedRecommendStream(query, history = []) {
     });
 
     for await (const token of greetingStream) {
+      hasTextOutput = true;
       yield { type: "text", text: token };
     }
   } catch (error) {
     console.error("[unifiedRecommend] Reply stream failed:", error.message);
+  }
+
+  // 如果 LLM 完全没输出（未配置/超时/报错），给一条兜底文案
+  if (!hasTextOutput && isFoodQuery) {
+    yield {
+      type: "text",
+      text: "根据你的口味，西小电帮你找到了这些，看看有没有心动的！",
+    };
+  }
+
+  // 3. 最后发送菜品卡片（放在文字之后，保证用户先看到回复文字）
+  if (isFoodQuery && items.length > 0) {
+    yield {
+      type: "final",
+      data: {
+        items: items,
+        reply_text: "",
+      },
+    };
   }
 }
