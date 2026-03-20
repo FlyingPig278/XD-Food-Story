@@ -28,73 +28,72 @@ function formatIntentSummary(intent) {
   const constraints = [];
 
   if (Array.isArray(intent?.meal_times) && intent.meal_times.length) {
-    constraints.push(`餐段=${intent.meal_times.join("/")}`);
+    constraints.push(`\u9910\u6bb5=${intent.meal_times.join("/")}`);
   }
   if (Array.isArray(intent?.categories) && intent.categories.length) {
-    constraints.push(`品类=${intent.categories.join("/")}`);
+    constraints.push(`\u54c1\u7c7b=${intent.categories.join("/")}`);
   }
   if (Array.isArray(intent?.spiciness) && intent.spiciness.length) {
-    constraints.push(`辣度=${intent.spiciness.join("/")}`);
+    constraints.push(`\u8fa3\u5ea6=${intent.spiciness.join("/")}`);
   }
   if (
     Number.isFinite(intent?.price_min) ||
     Number.isFinite(intent?.price_max)
   ) {
     constraints.push(
-      `预算=${intent?.price_min ?? "-"}~${intent?.price_max ?? "-"}`,
+      `\u9884\u7b97=${intent?.price_min ?? "-"}~${intent?.price_max ?? "-"}`,
     );
   }
   if (Array.isArray(intent?.location_texts) && intent.location_texts.length) {
-    constraints.push(`位置=${intent.location_texts.join("/")}`);
+    constraints.push(`\u4f4d\u7f6e=${intent.location_texts.join("/")}`);
   }
 
-  return constraints.length ? constraints.join("；") : "无显式约束";
+  return constraints.length ? constraints.join("\uff1b") : "\u65e0\u663e\u5f0f\u7ea6\u675f";
 }
 
 function isRecapQuery(query) {
   const normalized = String(query || "").trim();
-  return /上一句|上句|刚才说|总结|回顾|前文|之前聊|我说了什么/.test(normalized);
+  return /\u4e0a\u4e00\u53e5|\u4e0a\u53e5|\u521a\u624d\u8bf4|\u603b\u7ed3|\u56de\u987e|\u524d\u6587|\u4e4b\u524d\u804a|\u6211\u8bf4\u4e86\u4ec0\u4e48/.test(normalized);
 }
 
 export async function* unifiedRecommendStream(query, history = []) {
-  // 1. 意图解析
+  // 1. Intent parsing
   const { intent } = await parseIntent(query, 5, history);
   const isFoodQuery = intent.intent_type === "food_search";
   const historyMessages = buildHistoryMessages(history);
 
   let items = [];
   if (isFoodQuery) {
-    // 只有是食物相关查询时才进行搜索
     const { data: searchData } = await searchRecommendations(intent);
     items = searchData.items || [];
 
     if (items.length === 0) {
       yield {
         type: "text",
-        text: "唔，这个需求有点难到我了，没找到完全匹配的菜品呢。要不换个说法？",
+        text: "\u551f\uff0c\u8fd9\u4e2a\u9700\u6c42\u6709\u70b9\u96be\u5230\u6211\u4e86\uff0c\u6ca1\u627e\u5230\u5b8c\u5168\u5339\u914d\u7684\u83dc\u54c1\u5462\u3002\u8981\u4e0d\u6362\u4e2a\u8bf4\u6cd5\uff1f",
       };
       return;
     }
   }
 
-  // 2. 先生成有温度的文字回复（流式推送）
+  // 2. Stream LLM text reply FIRST (before sending cards)
   let hasTextOutput = false;
   try {
     const recapMode = isRecapQuery(query);
     const systemPrompt = recapMode
-      ? "你是校园食堂助手"西小电"。请仅依据对话历史回答用户的回顾问题，不要编造。如果历史不足就直接说信息不足。语气自然，30~80字。\n【格式要求】：禁止使用任何 Markdown 格式（如加粗、斜体、列表等），请直接输出纯文本。"
+      ? '\u4f60\u662f\u6821\u56ed\u98df\u5802\u52a9\u624b"\u897f\u5c0f\u7535"\u3002\u8bf7\u4ec5\u4f9d\u636e\u5bf9\u8bdd\u5386\u53f2\u56de\u7b54\u7528\u6237\u7684\u56de\u987e\u95ee\u9898\uff0c\u4e0d\u8981\u7f16\u9020\u3002\u5982\u679c\u5386\u53f2\u4e0d\u8db3\u5c31\u76f4\u63a5\u8bf4\u4fe1\u606f\u4e0d\u8db3\u3002\u8bed\u6c14\u81ea\u7136\uff0c30~80\u5b57\u3002\n\u3010\u683c\u5f0f\u8981\u6c42\u3011\uff1a\u7981\u6b62\u4f7f\u7528\u4efb\u4f55 Markdown \u683c\u5f0f\uff08\u5982\u52a0\u7c97\u3001\u659c\u4f53\u3001\u5217\u8868\u7b49\uff09\uff0c\u8bf7\u76f4\u63a5\u8f93\u51fa\u7eaf\u6587\u672c\u3002'
       : isFoodQuery
-        ? "你是一个既专业又带点俏皮感的校园食堂助手"西小电"。\n" +
-          "1. 语气：像学长学姐一样自然、亲切，带点幽默（比如：'饿坏了吧？'、'今天的胃口在呼唤什么？'）。\n" +
-          "2. 针对性：结合当前问题和历史需求，保持约束继承（如餐段、预算、辣度），再给简短推荐语。\n" +
-          "3. 限制：不要客套，不要谄媚。\n" +
-          "4. 格式：禁止使用任何 Markdown 格式（如加粗、斜体、列表等），请直接输出纯文本。"
-        : "你是一个既专业又带点俏皮感的校园食堂助手"西小电"。\n" +
-          "1. 身份：你是西电（西安电子科技大学）食堂的活地图、美食达人。\n" +
-          "2. 语气：随性、幽默、带点学长学姐的范儿。若用户是追问，请优先承接前文再回复。\n" +
-          "3. 引导：如果话题完全无关，可以巧妙地引导用户问你关于吃的话题，但不要生硬。\n" +
-          "4. 限制：字数控制在 30~50 字以内。\n" +
-          "5. 格式：禁止使用任何 Markdown 格式（如加粗、斜体、列表等），请直接输出纯文本。";
+        ? '\u4f60\u662f\u4e00\u4e2a\u65e2\u4e13\u4e1a\u53c8\u5e26\u70b9\u4fcf\u76ae\u611f\u7684\u6821\u56ed\u98df\u5802\u52a9\u624b"\u897f\u5c0f\u7535"\u3002\n' +
+          "1. \u8bed\u6c14\uff1a\u50cf\u5b66\u957f\u5b66\u59d0\u4e00\u6837\u81ea\u7136\u3001\u4eb2\u5207\uff0c\u5e26\u70b9\u5e7d\u9ed8\u3002\n" +
+          "2. \u9488\u5bf9\u6027\uff1a\u7ed3\u5408\u5f53\u524d\u95ee\u9898\u548c\u5386\u53f2\u9700\u6c42\uff0c\u4fdd\u6301\u7ea6\u675f\u7ee7\u627f\uff08\u5982\u9910\u6bb5\u3001\u9884\u7b97\u3001\u8fa3\u5ea6\uff09\uff0c\u518d\u7ed9\u7b80\u77ed\u63a8\u8350\u8bed\u3002\n" +
+          "3. \u9650\u5236\uff1a\u4e0d\u8981\u5ba2\u5957\uff0c\u4e0d\u8981\u8c04\u5a9a\u3002\n" +
+          "4. \u683c\u5f0f\uff1a\u7981\u6b62\u4f7f\u7528\u4efb\u4f55 Markdown \u683c\u5f0f\uff08\u5982\u52a0\u7c97\u3001\u659c\u4f53\u3001\u5217\u8868\u7b49\uff09\uff0c\u8bf7\u76f4\u63a5\u8f93\u51fa\u7eaf\u6587\u672c\u3002"
+        : '\u4f60\u662f\u4e00\u4e2a\u65e2\u4e13\u4e1a\u53c8\u5e26\u70b9\u4fcf\u76ae\u611f\u7684\u6821\u56ed\u98df\u5802\u52a9\u624b"\u897f\u5c0f\u7535"\u3002\n' +
+          "1. \u8eab\u4efd\uff1a\u4f60\u662f\u897f\u7535\uff08\u897f\u5b89\u7535\u5b50\u79d1\u6280\u5927\u5b66\uff09\u98df\u5802\u7684\u6d3b\u5730\u56fe\u3001\u7f8e\u98df\u8fbe\u4eba\u3002\n" +
+          "2. \u8bed\u6c14\uff1a\u968f\u6027\u3001\u5e7d\u9ed8\u3001\u5e26\u70b9\u5b66\u957f\u5b66\u59d0\u7684\u8303\u513f\u3002\u82e5\u7528\u6237\u662f\u8ffd\u95ee\uff0c\u8bf7\u4f18\u5148\u627f\u63a5\u524d\u6587\u518d\u56de\u590d\u3002\n" +
+          "3. \u5f15\u5bfc\uff1a\u5982\u679c\u8bdd\u9898\u5b8c\u5168\u65e0\u5173\uff0c\u53ef\u4ee5\u5de7\u5999\u5730\u5f15\u5bfc\u7528\u6237\u95ee\u4f60\u5173\u4e8e\u5403\u7684\u8bdd\u9898\uff0c\u4f46\u4e0d\u8981\u751f\u786c\u3002\n" +
+          "4. \u9650\u5236\uff1a\u5b57\u6570\u63a7\u5236\u5728 30~50 \u5b57\u4ee5\u5185\u3002\n" +
+          "5. \u683c\u5f0f\uff1a\u7981\u6b62\u4f7f\u7528\u4efb\u4f55 Markdown \u683c\u5f0f\uff08\u5982\u52a0\u7c97\u3001\u659c\u4f53\u3001\u5217\u8868\u7b49\uff09\uff0c\u8bf7\u76f4\u63a5\u8f93\u51fa\u7eaf\u6587\u672c\u3002";
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -102,10 +101,10 @@ export async function* unifiedRecommendStream(query, history = []) {
       {
         role: "user",
         content: recapMode
-          ? `当前问题：${query}`
-          : `当前问题：${query}\n意图约束：${formatIntentSummary(intent)}${
+          ? `\u5f53\u524d\u95ee\u9898\uff1a${query}`
+          : `\u5f53\u524d\u95ee\u9898\uff1a${query}\n\u610f\u56fe\u7ea6\u675f\uff1a${formatIntentSummary(intent)}${
               isFoodQuery
-                ? `\n候选菜品：${items.map((entry) => entry.item.title).join("、")}`
+                ? `\n\u5019\u9009\u83dc\u54c1\uff1a${items.map((entry) => entry.item.title).join("\u3001")}`
                 : ""
             }`,
       },
@@ -125,15 +124,15 @@ export async function* unifiedRecommendStream(query, history = []) {
     console.error("[unifiedRecommend] Reply stream failed:", error.message);
   }
 
-  // 如果 LLM 完全没输出（未配置/超时/报错），给一条兜底文案
+  // Fallback if LLM produced zero output
   if (!hasTextOutput && isFoodQuery) {
     yield {
       type: "text",
-      text: "根据你的口味，西小电帮你找到了这些，看看有没有心动的！",
+      text: "\u6839\u636e\u4f60\u7684\u53e3\u5473\uff0c\u897f\u5c0f\u7535\u5e2e\u4f60\u627e\u5230\u4e86\u8fd9\u4e9b\uff0c\u770b\u770b\u6709\u6ca1\u6709\u5fc3\u52a8\u7684\uff01",
     };
   }
 
-  // 3. 最后发送菜品卡片（放在文字之后，保证用户先看到回复文字）
+  // 3. Send food cards LAST (after text)
   if (isFoodQuery && items.length > 0) {
     yield {
       type: "final",
