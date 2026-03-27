@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { atom, useAtom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import {
   Area,
   AreaChart,
@@ -37,15 +38,30 @@ import {
   Utensils,
   Wheat,
   X,
+  CalendarDays,
+  Plus,
+  Trash2,
+  UtensilsCrossed,
 } from "lucide-react";
 import XiaoD from "./components/XiaoD";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { cn } from "./lib/utils";
 
 const favoritesAtom = atom<string[]>([]);
-const viewAtom = atom<"discover" | "favorites" | "shops">("discover");
+const viewAtom = atom<"discover" | "favorites" | "shops" | "planner">("discover");
 const searchQueryAtom = atom<string>("");
 const isAiModeAtom = atom<boolean>(false);
+
+type PlannerState = {
+  breakfast: string[];
+  lunch: string[];
+  dinner: string[];
+};
+const plannerAtom = atomWithStorage<PlannerState>("xd-diet-planner", {
+  breakfast: [],
+  lunch: [],
+  dinner: [],
+});
 
 type ShopGroup = { name: string; canteen: string; items: MenuItem[]; images: string[] };
 const selectedShopAtom = atom<ShopGroup | null>(null);
@@ -557,6 +573,21 @@ const Sidebar = React.memo(() => {
             />
             <span className="ml-3 font-medium hidden lg:block">店铺/窗口</span>
           </button>
+          <button
+            onClick={() => setView("planner")}
+            className={cn(
+              "flex items-center justify-center lg:justify-start lg:px-4 py-3.5 rounded-2xl transition-all duration-300",
+              currentView === "planner"
+                ? "bg-stone-800 text-white shadow-lg shadow-stone-800/10"
+                : "text-stone-500 hover:bg-stone-100 hover:text-stone-800",
+            )}
+          >
+            <CalendarDays
+              className="w-5 h-5 flex-shrink-0"
+              strokeWidth={currentView === "planner" ? 2 : 1.5}
+            />
+            <span className="ml-3 font-medium hidden lg:block">一餐一搭</span>
+          </button>
         </nav>
       </aside>
       <div className="md:hidden fixed bottom-0 inset-x-0 z-40 px-6 pb-[max(env(safe-area-inset-bottom),24px)] pointer-events-none">
@@ -611,6 +642,21 @@ const Sidebar = React.memo(() => {
                 currentView === "shops" ? "text-white" : "text-stone-400",
               )}
               strokeWidth={currentView === "shops" ? 2 : 1.5}
+            />
+          </button>
+          <button
+            onClick={() => setView("planner")}
+            className={cn(
+              "p-4 rounded-full transition-colors relative flex-1 flex justify-center",
+              currentView === "planner" ? "bg-white/10" : "hover:bg-white/5",
+            )}
+          >
+            <CalendarDays
+              className={cn(
+                "w-6 h-6",
+                currentView === "planner" ? "text-white" : "text-stone-400",
+              )}
+              strokeWidth={currentView === "planner" ? 2 : 1.5}
             />
           </button>
         </div>
@@ -940,6 +986,83 @@ const FoodCard = React.memo(
   },
 );
 
+const AddToPlannerBtn = ({ item }: { item: MenuItem }) => {
+  const [planner, setPlanner] = useAtom(plannerAtom);
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Check if item is already in a specific meal
+  const isAdded = (meal: "breakfast" | "lunch" | "dinner") =>
+    planner[meal].includes(item.id);
+
+  const add = (meal: "breakfast" | "lunch" | "dinner") => {
+    setPlanner((prev) => {
+      // Remove from other meals if present (optional: allow same item in different meals, but usually one is enough)
+      const newPlanner = {
+        breakfast: prev.breakfast.filter((id) => id !== item.id),
+        lunch: prev.lunch.filter((id) => id !== item.id),
+        dinner: prev.dinner.filter((id) => id !== item.id),
+      };
+      if (newPlanner[meal].length >= 3) return prev; // Limit to 3 per meal
+      newPlanner[meal].push(item.id);
+      return newPlanner;
+    });
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="relative inline-block w-full text-stone-700 mt-2 mb-2">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
+        className={cn(
+          "flex items-center justify-center w-full px-4 py-2.5 rounded-xl font-bold transition-transform shadow-sm active:scale-95",
+          isOpen ? "bg-orange-500 text-white" : "bg-stone-100 text-stone-700 hover:bg-stone-200"
+        )}
+      >
+        <CalendarDays className="w-[18px] h-[18px] mr-2" strokeWidth={2} />
+        {isOpen ? "收起" : "加入我的食谱拼图"}
+      </button>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="absolute top-12 left-0 w-full bg-white shadow-xl shadow-stone-800/10 border border-stone-100/80 rounded-2xl p-2.5 z-50 flex gap-2 backdrop-blur-md"
+          >
+            {(["breakfast", "lunch", "dinner"] as const).map((meal) => {
+              const label = meal === "breakfast" ? "早餐" : meal === "lunch" ? "午餐" : "晚餐";
+              const added = isAdded(meal);
+              const full = !added && planner[meal].length >= 3;
+              return (
+                <button
+                  key={meal}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!full) add(meal);
+                  }}
+                  disabled={full && !added}
+                  className={cn(
+                    "flex-1 py-2 rounded-xl text-sm font-bold transition-colors select-none",
+                    added
+                      ? "bg-green-100 text-green-700"
+                      : full
+                      ? "bg-stone-50 text-stone-300 cursor-not-allowed"
+                      : "bg-orange-50 text-orange-600 hover:bg-orange-100 active:bg-orange-200"
+                  )}
+                >
+                  {added ? "已加入" : full ? "已满" : label}
+                </button>
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 const DetailDrawer = React.memo(
   ({
@@ -1063,13 +1186,14 @@ const DetailDrawer = React.memo(
                     {item.title}
                   </h2>
 
-                  <div className="flex items-center px-3 py-1.5 bg-white rounded-xl shadow-sm text-[13.5px] font-medium text-stone-600 border border-stone-100 w-fit">
+                  <div className="flex items-center px-3 py-1.5 bg-white rounded-xl shadow-sm text-[13.5px] font-medium text-stone-600 border border-stone-100 w-fit mb-3">
                     <Clock
                       className="w-4 h-4 mr-1.5 text-stone-400"
                       strokeWidth={1.5}
                     />
                     建议等待时间：{item.wait_time_text}
                   </div>
+                  <AddToPlannerBtn item={item} />
                 </motion.div>
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
@@ -1271,12 +1395,17 @@ const FullScreenDetail = React.memo(
                         {item.title}
                       </h1>
 
-                      <div className="flex items-center px-4 py-2 bg-white/10 backdrop-blur-md rounded-2xl text-[13px] font-medium text-white border border-white/10 w-fit">
-                        <Clock
-                          className="w-3.5 h-3.5 mr-2 opacity-80"
-                          strokeWidth={1.5}
-                        />
-                        高峰预计等待：{item.wait_time_text}
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center px-4 py-2 bg-white/10 backdrop-blur-md rounded-2xl text-[13px] font-medium text-white border border-white/10 w-fit">
+                          <Clock
+                            className="w-3.5 h-3.5 mr-2 opacity-80"
+                            strokeWidth={1.5}
+                          />
+                          高峰预计等待：{item.wait_time_text}
+                        </div>
+                        <div className="w-56 mt-2">
+                          <AddToPlannerBtn item={item} />
+                        </div>
                       </div>
                     </div>
 
@@ -2290,6 +2419,309 @@ const XiaoDFloatingChat = React.memo(
   },
 );
 
+const DietPlannerView = React.memo(({ menuCache, onPickItem }: { menuCache: MenuItem[]; onPickItem: (id: string) => void }) => {
+  const [planner, setPlanner] = useAtom(plannerAtom);
+  const [aiReview, setAiReview] = useState<string | null>(null);
+  const [isReviewing, setIsReviewing] = useState(false);
+  const [, setView] = useAtom(viewAtom);
+
+  const getItems = (ids: string[]) => ids.map(id => menuCache.find(m => m.id === id)).filter(Boolean) as MenuItem[];
+
+  const meals = [
+    { key: "breakfast" as const, label: "早餐小点", icon: <Clock className="w-5 h-5 text-amber-500" />, items: getItems(planner.breakfast) },
+    { key: "lunch" as const, label: "元气午餐", icon: <UtensilsCrossed className="w-5 h-5 text-orange-500" />, items: getItems(planner.lunch) },
+    { key: "dinner" as const, label: "舒适晚餐", icon: <Utensils className="w-5 h-5 text-rose-500" />, items: getItems(planner.dinner) },
+  ];
+
+  const allItems = [...meals[0].items, ...meals[1].items, ...meals[2].items];
+  
+  const totalPrice = allItems.reduce((acc, item) => acc + item.price, 0);
+  const totalCalories = allItems.reduce((acc, item) => acc + (buildMacroEstimate(item).calories), 0);
+  const totalProtein = allItems.reduce((acc, item) => acc + (buildMacroEstimate(item).protein), 0);
+  const totalCarbs = allItems.reduce((acc, item) => acc + (buildMacroEstimate(item).carbs), 0);
+  const totalFat = allItems.reduce((acc, item) => acc + (buildMacroEstimate(item).fat), 0);
+  const avgSatiety = allItems.length ? allItems.reduce((acc, item) => acc + normalizeRadarScore(item.radar?.satiety), 0) / allItems.length : 0;
+  const avgHealth = allItems.length ? allItems.reduce((acc, item) => acc + normalizeRadarScore(item.radar?.health), 0) / allItems.length : 0;
+
+  const remove = (meal: 'breakfast'|'lunch'|'dinner', id: string) => {
+    setPlanner(prev => ({ ...prev, [meal]: prev[meal].filter(i => i !== id) }));
+  };
+
+  const clearAll = () => {
+    setPlanner({ breakfast: [], lunch: [], dinner: [] });
+    setAiReview(null);
+  };
+
+  const getCalorieStatus = () => {
+    if (totalCalories === 0) return { text: "待填满", color: "text-stone-400", bg: "bg-stone-100 border-transparent" };
+    if (totalCalories < 1600) return { text: "偏低·去脂", color: "text-blue-600", bg: "bg-blue-50 border-blue-100" };
+    if (totalCalories <= 2800) return { text: "完美守恒", color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-100" };
+    return { text: "热量超标", color: "text-rose-600", bg: "bg-rose-50 border-rose-100" };
+  };
+  const calStatus = getCalorieStatus();
+
+  const getPriceStatus = () => {
+    if (totalPrice === 0) return { text: "-", color: "text-stone-400 border-transparent" };
+    if (totalPrice <= 30) return { text: "精打细算", color: "text-green-600 bg-green-50 border-green-100" };
+    if (totalPrice <= 55) return { text: "常规输出", color: "text-orange-600 bg-orange-50 border-orange-100" };
+    return { text: "小资大餐", color: "text-rose-600 bg-rose-50 border-rose-100" };
+  };
+
+  const getMacroStatus = (val: number, min: number, max: number) => {
+    if (totalCalories === 0) return { label: "待摄入", color: "text-stone-400" };
+    if (val < min) return { label: "偏少", color: "text-blue-500" };
+    if (val > max) return { label: "超额", color: "text-rose-500" };
+    return { label: "充足", color: "text-emerald-500" };
+  };
+
+  const requestReview = async () => {
+    if (allItems.length === 0) return;
+    setIsReviewing(true);
+    setAiReview(null);
+    try {
+      const mealTexts = meals
+        .map(m => m.items.length > 0 ? `${m.label.replace("小点","").replace("元气","").replace("舒适","")}吃${m.items.map(i => i?.title).join("和")}` : null)
+        .filter(Boolean)
+        .join("，");
+      const prompt = `用户今天的食谱搭配是：${mealTexts}。总计${totalPrice.toFixed(1)}元，热量${totalCalories}千卡。请你扮演聪明机灵的西点食堂小助手“西小电”，用50字以内调侃或赞赏一下这份早中晚餐的分布比例（带小彩蛋或颜文字）。直接输出评价本身。`;
+      
+      const res = await fetch("/api/recommend/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: prompt, conversation_history: [] })
+      });
+      if (res.ok) {
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+        let fullText = "";
+        let buffer = "";
+        while (reader) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed === "data: [DONE]") continue;
+
+            if (trimmed.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(trimmed.slice(6));
+                if (data.type === "text") {
+                  fullText += data.text;
+                  setAiReview(fullText);
+                } else if (data.type === "final" && data.data?.reply_text) {
+                  if (!fullText) {
+                    fullText = data.data.reply_text;
+                    setAiReview(fullText);
+                  }
+                }
+              } catch {
+                // ignore invalid JSON
+              }
+            }
+          }
+        }
+      } else {
+        setAiReview("西小电跑去打饭了，待会儿再来问我吧！(。・ω・。)");
+      }
+    } catch {
+      setAiReview("网络有点小波动，评价失败啦TAT");
+    } finally {
+      setIsReviewing(false);
+    }
+  };
+
+  return (
+    <motion.div
+      key="planner"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.3 }}
+      className="pt-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-32"
+    >
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
+        <div>
+          <h1 className="text-4xl font-serif font-bold text-stone-800 tracking-tight flex items-center gap-3">
+            <CalendarDays className="w-8 h-8 text-orange-500" />
+            一餐一搭
+          </h1>
+          <p className="text-stone-500 mt-2 font-medium">像拼图一样，规划你在西电的一日三餐。</p>
+        </div>
+        {allItems.length > 0 && (
+          <button onClick={clearAll} className="text-sm font-semibold text-stone-400 hover:text-rose-500 transition-colors bg-white px-4 py-2 rounded-full shadow-sm hover:shadow active:scale-95 border border-stone-100 flex items-center gap-2">
+            <Trash2 className="w-4 h-4" /> 清空拼图
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* 左侧拼图区 */}
+        <div className="lg:col-span-8 flex flex-col gap-6">
+          {meals.map((meal) => (
+            <div key={meal.key} className="bg-white/80 backdrop-blur-md rounded-3xl p-5 border border-stone-100 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                {meal.icon}
+                <h2 className="text-lg font-bold text-stone-800">{meal.label}</h2>
+                <span className="ml-auto text-xs font-semibold px-2 py-1 bg-stone-100 text-stone-500 rounded-full">
+                  {meal.items.length} / 3
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-3">
+                {[0, 1, 2].map((idx) => {
+                  const item = meal.items[idx];
+                  if (item) {
+                    return (
+                      <motion.div layoutId={`planner-${item.id}-${idx}`} key={idx} className="relative group bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-200 aspect-square md:aspect-auto md:h-32 flex flex-col cursor-pointer active:scale-95 transition-transform" onClick={() => onPickItem(item.id)}>
+                        <img src={getImageUrl(item.image_key)} alt="" className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-stone-900/80 via-transparent to-transparent pointer-events-none" />
+                        <div className="absolute bottom-2 left-2 right-2">
+                          <p className="text-white text-[12px] md:text-sm font-bold truncate tracking-tight">{item.title}</p>
+                          <p className="text-white/80 text-[10px] md:text-xs">¥{item.price.toFixed(1)}</p>
+                        </div>
+                        <button onClick={(e) => { e.stopPropagation(); remove(meal.key, item.id); }} className="absolute top-1 right-1 md:top-2 md:right-2 p-1.5 bg-black/20 hover:bg-rose-500 rounded-full text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all shadow-sm">
+                          <X className="w-3.5 h-3.5" strokeWidth={2.5}/>
+                        </button>
+                      </motion.div>
+                    );
+                  } else {
+                    return (
+                      <button 
+                        key={idx} 
+                        onClick={() => setView("discover")}
+                        className="group border-2 border-dashed border-stone-200 rounded-2xl aspect-square md:aspect-auto md:h-32 flex flex-col items-center justify-center text-stone-300 bg-stone-50/50 hover:bg-orange-50/50 hover:border-orange-200 hover:text-orange-400 transition-colors cursor-pointer active:scale-95"
+                      >
+                        <Plus className="w-6 h-6 mb-1 opacity-50 group-hover:opacity-100 transition-opacity" strokeWidth={2}/>
+                        <span className="text-[10px] md:text-xs font-medium opacity-50 group-hover:opacity-100 transition-opacity">去挑菜</span>
+                      </button>
+                    );
+                  }
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* 右侧分析区 */}
+        <div className="lg:col-span-4 flex flex-col gap-6">
+          <div className="bg-white/80 backdrop-blur-3xl rounded-[32px] p-7 border border-white shadow-[0_8px_40px_rgba(0,0,0,0.05)] sticky top-24 relative overflow-hidden">
+            {/* Elegant glass blur circles */}
+            <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-orange-200/30 via-rose-100/20 to-transparent rounded-full blur-3xl -z-10 translate-x-1/3 -translate-y-1/3 pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-48 h-48 bg-gradient-to-tr from-blue-100/30 via-emerald-50/20 to-transparent rounded-full blur-3xl -z-10 -translate-x-1/3 translate-y-1/3 pointer-events-none" />
+
+            <h3 className="text-[13px] font-black tracking-widest text-stone-800/40 uppercase mb-8 flex items-center gap-2">
+              <Sparkles className="w-4 h-4" /> 营养演算仪
+            </h3>
+            
+            <div className="flex flex-col gap-8">
+              {/* 花费 */}
+              <div className="flex justify-between items-end">
+                <div>
+                  <p className="text-[11px] font-bold text-stone-400 uppercase mb-1 flex items-center gap-1"><Store className="w-3.5 h-3.5"/> 预计总花费</p>
+                  <p className="text-4xl font-black text-stone-800 tracking-tighter">
+                    <span className="text-2xl text-stone-400 mr-1 opacity-60">¥</span>{totalPrice.toFixed(1)}
+                  </p>
+                </div>
+                <div className="pb-1.5">
+                  <span className={cn("text-xs font-bold px-2.5 py-1.5 rounded-lg border", getPriceStatus().color)}>
+                    {getPriceStatus().text}
+                  </span>
+                </div>
+              </div>
+
+              {/* 热量 */}
+              <div>
+                <div className="flex justify-between items-end mb-2.5">
+                  <p className="text-[11px] font-bold text-stone-400 uppercase flex items-center gap-1"><Flame className="w-3.5 h-3.5"/> 一日热量预算</p>
+                  <p className="text-2xl font-black text-stone-800 tracking-tight">{totalCalories} <span className="text-xs text-stone-400 font-bold ml-0.5">kcal</span></p>
+                </div>
+                {/* 进度条 */}
+                <div className="h-2.5 w-full bg-stone-100/80 rounded-full overflow-hidden flex shadow-inner">
+                  <motion.div 
+                    initial={{ width: 0 }} 
+                    animate={{ width: `${Math.min((totalCalories / 2800) * 100, 100)}%` }} 
+                    className={cn("h-full rounded-full transition-all duration-500", totalCalories > 2800 ? "bg-rose-500" : "bg-gradient-to-r from-orange-400 to-orange-500")}
+                  />
+                </div>
+                <div className="flex justify-between items-center mt-3">
+                  <span className="text-[10px] text-stone-400/80 font-bold tracking-wide">建议上限: 2800 kcal</span>
+                  <span className={cn("text-[11px] font-bold px-2.5 py-1 rounded-lg border", calStatus.bg, calStatus.color)}>
+                    {calStatus.text}
+                  </span>
+                </div>
+              </div>
+
+              {/* 宏量营养素 */}
+              <div className="space-y-4 pt-2">
+                {[
+                  { label: "蛋白质", value: totalProtein, min: 50, max: 90, unit: "g", color: "bg-blue-400", bgLight: "bg-blue-50", text: "text-blue-600", icon: <Droplets className="w-3.5 h-3.5 text-blue-400"/> },
+                  { label: "碳水", value: totalCarbs, min: 180, max: 320, unit: "g", color: "bg-amber-400", bgLight: "bg-amber-50", text: "text-amber-600", icon: <Wheat className="w-3.5 h-3.5 text-amber-500"/> },
+                  { label: "脂肪", value: totalFat, min: 45, max: 80, unit: "g", color: "bg-rose-400", bgLight: "bg-rose-50", text: "text-rose-600", icon: <Leaf className="w-3.5 h-3.5 text-rose-400"/> }
+                ].map((m, i) => {
+                  const st = getMacroStatus(m.value, m.min, m.max);
+                  return (
+                    <div key={m.label} className="group">
+                      <div className="flex justify-between items-center text-[12px] font-bold mb-1.5">
+                        <span className="text-stone-500 flex items-center gap-1.5">{m.icon}{m.label}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded flex items-center", m.bgLight, st.color)}>
+                            {st.label}
+                          </span>
+                          <span className="text-stone-800">{m.value}<span className="text-[10px] text-stone-400 ml-0.5">{m.unit}</span></span>
+                        </div>
+                      </div>
+                      <div className="h-1.5 w-full bg-stone-100 rounded-full overflow-hidden">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${clamp((m.value / m.max) * 100, 0, 100)}%` }}
+                          transition={{ delay: i * 0.1, duration: 0.8, type: "spring" }}
+                          className={cn("h-full rounded-full", m.color)}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* AI 评价区 */}
+            <div className="mt-8 pt-6 border-t border-stone-100/80">
+              <button 
+                disabled={allItems.length === 0 || isReviewing}
+                onClick={requestReview}
+                className="w-full relative overflow-hidden group bg-stone-800 hover:bg-stone-900 text-white rounded-[20px] py-3.5 px-4 font-bold transition-transform active:scale-95 shadow-xl shadow-stone-800/15 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {!isReviewing ? <Sparkles className="w-4 h-4 text-orange-300" strokeWidth={2.5}/> : <LoaderCircle className="w-4 h-4 animate-spin text-orange-300" />}
+                {isReviewing ? "西小电思考中..." : "召唤西小电点评食谱"}
+              </button>
+              
+              <AnimatePresence>
+                {aiReview && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, height: 0 }}
+                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                    className="mt-4 bg-orange-50/60 backdrop-blur-md rounded-2xl p-4 border border-orange-100/50 shadow-inner relative"
+                  >
+                    <div className="absolute -top-2.5 left-4 w-5 h-5 bg-white rounded-full border border-orange-100 flex items-center justify-center shadow-sm">
+                      <Sparkles className="w-2.5 h-2.5 text-orange-400" />
+                    </div>
+                    <p className="text-sm text-stone-700 leading-relaxed font-medium mt-0.5">
+                      {aiReview}
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+});
+
 export default function App() {
   const [menuCache, setMenuCache] = useState<MenuItem[]>([]);
   const [fullMenuCatalog, setFullMenuCatalog] = useState<MenuItem[]>([]);
@@ -3164,6 +3596,8 @@ export default function App() {
                   </div>
                 )}
               </motion.div>
+            ) : currentView === "planner" ? (
+              <DietPlannerView menuCache={fullMenuCatalog} onPickItem={openDetail} />
             ) : null}
           </AnimatePresence>
         </main>
