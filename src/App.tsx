@@ -2440,8 +2440,6 @@ const DietPlannerView = React.memo(({ menuCache, onPickItem }: { menuCache: Menu
   const totalProtein = allItems.reduce((acc, item) => acc + (buildMacroEstimate(item).protein), 0);
   const totalCarbs = allItems.reduce((acc, item) => acc + (buildMacroEstimate(item).carbs), 0);
   const totalFat = allItems.reduce((acc, item) => acc + (buildMacroEstimate(item).fat), 0);
-  const avgSatiety = allItems.length ? allItems.reduce((acc, item) => acc + normalizeRadarScore(item.radar?.satiety), 0) / allItems.length : 0;
-  const avgHealth = allItems.length ? allItems.reduce((acc, item) => acc + normalizeRadarScore(item.radar?.health), 0) / allItems.length : 0;
 
   const remove = (meal: 'breakfast'|'lunch'|'dinner', id: string) => {
     setPlanner(prev => ({ ...prev, [meal]: prev[meal].filter(i => i !== id) }));
